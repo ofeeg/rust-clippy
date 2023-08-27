@@ -48,6 +48,7 @@ mod iter_skip_next;
 mod iter_skip_zero;
 mod iter_with_drain;
 mod iterator_step_by_zero;
+mod join_absolute_paths;
 mod manual_next_back;
 mod manual_ok_or;
 mod manual_saturating_arithmetic;
@@ -1163,6 +1164,43 @@ declare_clippy_lint! {
     pub ITERATOR_STEP_BY_ZERO,
     correctness,
     "using `Iterator::step_by(0)`, which will panic at runtime"
+}
+
+declare_clippy_lint! {
+    /// ### What it does
+    /// Checks for calls to `Path::join` that start with a path separator, like `\\` or `/`..
+    ///
+    /// ### Why is this bad?
+    /// `.join()` arguments starting with a separator  (`/` or `\\`) can replace the entire path.
+    /// If this is intentional, prefer using `Path::new()` instead.
+    ///
+    /// See [`Path::join()`](https://doc.rust-lang.org/std/path/struct.Path.html#method.join)
+    ///
+    /// ### Example
+    /// ```rust
+    /// # use std::path::{Path, PathBuf};
+    /// let path = Path::new("/bin");
+    /// let joined_path = path.join("/sh");
+    /// assert_eq!(joined_path, PathBuf::from("/sh"));
+    /// ```
+    ///
+    /// Use instead;
+    /// ```rust
+    /// # use std::path::{Path, PathBuf};
+    /// let path = Path::new("/bin");
+    ///
+    /// // If this was unintentional, remove the leading separator
+    /// let joined_path = path.join("sh");
+    /// assert_eq!(joined_path, PathBuf::from("/bin/sh"));
+    ///
+    /// // If this was intentional, create a new path instead
+    /// let new = Path::new("/sh");
+    /// assert_eq!(new, PathBuf::from("/sh"));
+    /// ```
+    #[clippy::version = "1.70.0"]
+    pub JOIN_ABSOLUTE_PATHS,
+    correctness,
+  "arg to .join called on a Path contains leading separator"
 }
 
 declare_clippy_lint! {
@@ -2988,8 +3026,8 @@ declare_clippy_lint! {
     /// # let mut state = DefaultHasher::new();
     /// # let my_enum = Foo::Empty;
     /// match my_enum {
-    /// 	Empty => ().hash(&mut state),
-    /// 	WithValue(x) => x.hash(&mut state),
+    ///         Empty => ().hash(&mut state),
+    ///         WithValue(x) => x.hash(&mut state),
     /// }
     /// ```
     /// Use instead:
@@ -3001,8 +3039,8 @@ declare_clippy_lint! {
     /// # let mut state = DefaultHasher::new();
     /// # let my_enum = Foo::Empty;
     /// match my_enum {
-    /// 	Empty => 0_u8.hash(&mut state),
-    /// 	WithValue(x) => x.hash(&mut state),
+    ///         Empty => 0_u8.hash(&mut state),
+    ///         WithValue(x) => x.hash(&mut state),
     /// }
     /// ```
     #[clippy::version = "1.58.0"]
@@ -3600,6 +3638,7 @@ impl_lint_pass!(Methods => [
     FLAT_MAP_IDENTITY,
     MAP_FLATTEN,
     ITERATOR_STEP_BY_ZERO,
+    JOIN_ABSOLUTE_PATHS,
     ITER_NEXT_SLICE,
     ITER_COUNT,
     ITER_NTH,
@@ -4036,6 +4075,9 @@ impl Methods {
                 ("join", [join_arg]) => {
                     if let Some(("collect", _, _, span, _)) = method_call(recv) {
                         unnecessary_join::check(cx, expr, recv, join_arg, span);
+                    }
+                    else {
+                      join_absolute_paths::check(cx, recv,  join_arg);
                     }
                 },
                 ("last", []) => {
